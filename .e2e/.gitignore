@@ -1,0 +1,10 @@
+node_modules/
+leadecho-api
+logs/
+results/
+report/
+.auth/
+test-results/
+backend.e2e.env
+backend.log
+*.output

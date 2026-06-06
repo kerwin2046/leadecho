@@ -518,7 +518,7 @@ type Mention struct {
 	PlatformCreatedAt     pgtype.Timestamptz `json:"platform_created_at"`
 	CreatedAt             time.Time          `json:"created_at"`
 	UpdatedAt             time.Time          `json:"updated_at"`
-	ContentEmbedding      pgvector.Vector    `json:"content_embedding"`
+	ContentEmbedding      *pgvector.Vector   `json:"content_embedding"`
 	ScoringMetadata       []byte             `json:"scoring_metadata"`
 	AwarenessLevel        pgtype.Text        `json:"awareness_level"`
 }
