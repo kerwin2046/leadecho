@@ -221,6 +221,23 @@ type completeRequest struct {
 	Subreddits  []string `json:"subreddits"`
 }
 
+// onboardingCompleted reports whether this workspace has already finished onboarding.
+func (h *OnboardingHandler) onboardingCompleted(ctx context.Context, wsID string) bool {
+	raw, err := h.q.GetWorkspaceSettings(ctx, wsID)
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	var settings map[string]json.RawMessage
+	if json.Unmarshal(raw, &settings) != nil {
+		return false
+	}
+	var state onboardingState
+	if obRaw, ok := settings["onboarding"]; ok {
+		_ = json.Unmarshal(obRaw, &state)
+	}
+	return state.Completed
+}
+
 // Complete creates all resources from the reviewed onboarding data and marks onboarding done.
 // POST /settings/onboarding/complete
 func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
@@ -231,12 +248,28 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	body.ProductName = strings.TrimSpace(body.ProductName)
 	if body.ProductName == "" {
 		writeError(w, http.StatusBadRequest, "product_name is required")
 		return
 	}
 
 	ctx := r.Context()
+
+	// Idempotency: if onboarding is already complete, don't create duplicate
+	// monitoring profiles/keywords on a re-submit.
+	if h.onboardingCompleted(ctx, wsID) {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "completed", "already_completed": true})
+		return
+	}
+
+	// Normalize array fields so a nil slice never hits a NOT NULL column.
+	if len(body.Platforms) == 0 {
+		body.Platforms = []string{"hackernews", "reddit", "twitter", "linkedin"}
+	}
+	if body.Subreddits == nil {
+		body.Subreddits = []string{}
+	}
 
 	// 1. Create monitoring profile with pain points
 	profile, err := h.q.CreateMonitoringProfile(ctx, database.CreateMonitoringProfileParams{
@@ -255,13 +288,15 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		embedAndStore(ctx, h.q, h.embedder, profile.ID, wsID, body.PainPoints)
 	}
 
-	// 3. Create keywords
+	// 3. Create keywords — tolerate duplicates, but surface real failures so we
+	//    never report "completed" while having silently created zero monitors.
+	keywordsCreated := 0
 	for _, keyword := range body.Keywords {
 		keyword = strings.TrimSpace(keyword)
 		if keyword == "" {
 			continue
 		}
-		h.q.CreateKeyword(ctx, database.CreateKeywordParams{
+		if _, err := h.q.CreateKeyword(ctx, database.CreateKeywordParams{
 			WorkspaceID:   wsID,
 			Term:          keyword,
 			Platforms:     body.Platforms,
@@ -269,7 +304,12 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 			MatchType:     "contains",
 			NegativeTerms: []string{},
 			Subreddits:    body.Subreddits,
-		})
+		}); err != nil {
+			// Duplicate term (already monitored) is benign; other errors are
+			// reflected in the keywords_created count returned to the caller.
+			continue
+		}
+		keywordsCreated++
 	}
 
 	// 4. Mark onboarding complete
@@ -290,8 +330,9 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":     "completed",
-		"profile_id": profile.ID,
+		"status":           "completed",
+		"profile_id":       profile.ID,
+		"keywords_created": keywordsCreated,
 	})
 }
 

@@ -247,6 +247,46 @@ test.describe("backend regressions: error mapping & validation", () => {
     if (id) await page.request.delete(`/api/v1/utm-links/${id}`);
   });
 
+  test("onboarding complete is idempotent (no duplicate profiles, nil subreddits ok)", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({ baseURL: "http://localhost:13100" });
+    const email = `idem-${Date.now()}@leadecho.test`;
+    const reg = await ctx.request.post("/api/v1/auth/register", {
+      data: { email, password: "idem-pass-123", name: "Idem" },
+    });
+    expect(reg.ok()).toBeTruthy();
+
+    // No `subreddits` key on purpose — must not blow up a NOT NULL column.
+    const payload = {
+      product_name: "Idem Co",
+      keywords: ["alpha-kw", "beta-kw"],
+      platforms: ["reddit"],
+    };
+    const first = await ctx.request.post(
+      "/api/v1/settings/onboarding/complete",
+      { data: payload },
+    );
+    expect(first.status()).toBe(200);
+    const profilesAfter1 = (
+      await (await ctx.request.get("/api/v1/profiles")).json()
+    ).length;
+    expect(profilesAfter1).toBe(1);
+
+    // Re-submitting must be a no-op, not create a second profile.
+    const second = await ctx.request.post(
+      "/api/v1/settings/onboarding/complete",
+      { data: payload },
+    );
+    expect((await second.json()).already_completed).toBe(true);
+    const profilesAfter2 = (
+      await (await ctx.request.get("/api/v1/profiles")).json()
+    ).length;
+    expect(profilesAfter2, "no duplicate profile on re-complete").toBe(1);
+
+    await ctx.close();
+  });
+
   test("mention response includes awareness_level field", async ({ page }) => {
     const list = await (
       await page.request.get("/api/v1/mentions?limit=1")

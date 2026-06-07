@@ -182,6 +182,12 @@ func (m *Monitor) tick(ctx context.Context) {
 // insertMention creates a mention if it does not already exist.
 // Returns a mentionAlert if the mention was new, or nil if it was a duplicate.
 func (m *Monitor) insertMention(ctx context.Context, p database.CreateMentionParams, keyword string) *mentionAlert {
+	// Defense-in-depth: several authenticated/sidecar crawlers build
+	// CreateMentionParams without a Status; the Go zero value "" is rejected by
+	// the mention_status enum and would fail every insert. Default to "new".
+	if p.Status == "" {
+		p.Status = database.MentionStatusNew
+	}
 	mention, err := m.q.CreateMention(ctx, p)
 	if err != nil {
 		if isDuplicateError(err) {

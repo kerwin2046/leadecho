@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -20,21 +21,30 @@ func (h *AnalyticsHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	wsID := middleware.WorkspaceID(ctx)
 
-	mentions30d, _ := h.q.CountMentions30d(ctx, wsID)
-	mentionsNew, _ := h.q.CountNewMentions(ctx, wsID)
-	totalLeads, _ := h.q.CountTotalLeads(ctx, wsID)
-	convertedLeads, _ := h.q.CountConvertedLeads(ctx, wsID)
-	repliesPosted, _ := h.q.CountRepliesPosted30d(ctx, wsID)
-	activeKeywords, _ := h.q.CountActiveKeywords(ctx, wsID)
+	// Surface query errors instead of silently reporting zeros (which would
+	// misreport every KPI as 0 during a DB problem).
+	counters := []struct {
+		key string
+		fn  func(context.Context, string) (int32, error)
+	}{
+		{"mentions_30d", h.q.CountMentions30d},
+		{"mentions_new", h.q.CountNewMentions},
+		{"total_leads", h.q.CountTotalLeads},
+		{"converted_leads", h.q.CountConvertedLeads},
+		{"replies_posted", h.q.CountRepliesPosted30d},
+		{"active_keywords", h.q.CountActiveKeywords},
+	}
+	stats := make(map[string]int32, len(counters))
+	for _, c := range counters {
+		v, err := c.fn(ctx, wsID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load overview stats")
+			return
+		}
+		stats[c.key] = v
+	}
 
-	writeJSON(w, http.StatusOK, map[string]int32{
-		"mentions_30d":    mentions30d,
-		"mentions_new":    mentionsNew,
-		"total_leads":     totalLeads,
-		"converted_leads": convertedLeads,
-		"replies_posted":  repliesPosted,
-		"active_keywords": activeKeywords,
-	})
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func (h *AnalyticsHandler) MentionsPerDay(w http.ResponseWriter, r *http.Request) {

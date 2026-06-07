@@ -116,11 +116,12 @@ func (q *Queries) DeletePainPointEmbeddingsByProfile(ctx context.Context, profil
 }
 
 const findSimilarPainPoints = `-- name: FindSimilarPainPoints :many
-SELECT id, profile_id, workspace_id, phrase,
-    (1 - (embedding <=> $1::vector))::float8 as similarity
-FROM pain_point_embeddings
-WHERE workspace_id = $2
-ORDER BY embedding <=> $1::vector
+SELECT ppe.id, ppe.profile_id, ppe.workspace_id, ppe.phrase,
+    (1 - (ppe.embedding <=> $1::vector))::float8 as similarity
+FROM pain_point_embeddings ppe
+JOIN monitoring_profiles mp ON mp.id = ppe.profile_id
+WHERE ppe.workspace_id = $2 AND mp.is_active = true
+ORDER BY ppe.embedding <=> $1::vector
 LIMIT $3
 `
 

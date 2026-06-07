@@ -58,9 +58,12 @@ DELETE FROM pain_point_embeddings
 WHERE profile_id = @profile_id;
 
 -- name: FindSimilarPainPoints :many
-SELECT id, profile_id, workspace_id, phrase,
-    (1 - (embedding <=> @query_embedding::vector))::float8 as similarity
-FROM pain_point_embeddings
-WHERE workspace_id = @workspace_id
-ORDER BY embedding <=> @query_embedding::vector
+-- Only match pain points from ACTIVE monitoring profiles so deactivating a
+-- profile actually stops its phrases from scoring new mentions.
+SELECT ppe.id, ppe.profile_id, ppe.workspace_id, ppe.phrase,
+    (1 - (ppe.embedding <=> @query_embedding::vector))::float8 as similarity
+FROM pain_point_embeddings ppe
+JOIN monitoring_profiles mp ON mp.id = ppe.profile_id
+WHERE ppe.workspace_id = @workspace_id AND mp.is_active = true
+ORDER BY ppe.embedding <=> @query_embedding::vector
 LIMIT @lim;
