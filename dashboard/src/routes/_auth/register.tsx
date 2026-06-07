@@ -34,7 +34,7 @@ function RegisterPage() {
     setLoading(true);
     try {
       await registerWithEmail(email, password, name);
-      window.location.href = "/inbox";
+      window.location.href = "/app/inbox";
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {

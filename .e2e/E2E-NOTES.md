@@ -31,6 +31,15 @@ Branch: `e2e-hardening` (off `master` @ 884134e). No pushes without approval.
   `ContentEmbedding` → `*pgvector.Vector`. `go mod tidy`.
 - Verified: 59 mentions persist (54 live HN + seed); no scan errors.
 
+### [FIXED] #2 Auth redirects not basepath-aware → land on 404
+- Symptom: after login/register the app did `window.location.href = "/inbox"`,
+  and logout did `"/login"`. SPA basepath is `/app`, so users landed on `/inbox`
+  / `/login` which 404 (dev) or hit the Astro landing (prod) — broken auth UX.
+- Fix: `routes/_auth/login.tsx` + `routes/_auth/register.tsx` → `/app/inbox`;
+  `lib/auth.tsx` logout → `/app/login`. (`_auth.tsx` `<Navigate to="/inbox">` is
+  router-aware and already correct.)
+- Verified by: tests/auth.spec.ts (asserts post-auth URL is /app/inbox).
+
 ## Feature surface to cover
 Pages: index(overview), inbox, pipeline, keywords, knowledge-base, profiles,
 analytics, alerts, workflows, browser-sessions, settings, onboarding, + auth.
