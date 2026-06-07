@@ -48,6 +48,28 @@ test.describe("backend regressions: error mapping & validation", () => {
     expect(await idsIn("worth_watching")).not.toContain(probe);
   });
 
+  test("inbox filters compose (AND) and total is the real match count, not page size", async ({
+    page,
+  }) => {
+    const get = async (qs: string) =>
+      (await page.request.get(`/api/v1/mentions?${qs}`)).json();
+
+    // total reflects the full match set even with a tiny page.
+    const all = await get("limit=2");
+    expect(all.data.length).toBeLessThanOrEqual(2);
+    expect(all.total, "total must exceed page size").toBeGreaterThan(2);
+
+    // A platform constraint must narrow a search (previously platform was ignored
+    // because only the first matching filter was applied).
+    const search = await get("search=analytics&limit=50");
+    const searchTwitter = await get(
+      "search=analytics&platform=twitter&limit=50",
+    );
+    expect(searchTwitter.total).toBeLessThanOrEqual(search.total);
+    // Every returned row must satisfy BOTH constraints.
+    for (const m of searchTwitter.data) expect(m.platform).toBe("twitter");
+  });
+
   test("mention status update: invalid status -> 400, bogus id -> 404", async ({
     page,
   }) => {

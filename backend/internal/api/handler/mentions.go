@@ -153,72 +153,27 @@ func (h *MentionHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var mentions []database.Mention
-	var err error
-
-	tier := r.URL.Query().Get("tier")
-	status := r.URL.Query().Get("status")
-	platform := r.URL.Query().Get("platform")
-	intent := r.URL.Query().Get("intent")
-	search := r.URL.Query().Get("search")
-
-	switch {
-	case tier == "leads_ready":
-		mentions, err = h.q.ListMentionsLeadsReady(ctx, database.ListMentionsLeadsReadyParams{
-			WorkspaceID: workspaceID,
-			Lim:         limit,
-			Off:         offset,
-		})
-	case tier == "worth_watching":
-		mentions, err = h.q.ListMentionsWorthWatching(ctx, database.ListMentionsWorthWatchingParams{
-			WorkspaceID: workspaceID,
-			Lim:         limit,
-			Off:         offset,
-		})
-	case tier == "filtered":
-		mentions, err = h.q.ListMentionsFiltered(ctx, database.ListMentionsFilteredParams{
-			WorkspaceID: workspaceID,
-			Lim:         limit,
-			Off:         offset,
-		})
-	case search != "":
-		mentions, err = h.q.SearchMentions(ctx, database.SearchMentionsParams{
-			WorkspaceID: workspaceID,
-			Query:       search,
-			Lim:         limit,
-			Off:         offset,
-		})
-	case status != "":
-		mentions, err = h.q.ListMentionsByStatus(ctx, database.ListMentionsByStatusParams{
-			WorkspaceID: workspaceID,
-			Status:      database.MentionStatus(status),
-			Lim:         limit,
-			Off:         offset,
-		})
-	case platform != "":
-		mentions, err = h.q.ListMentionsByPlatform(ctx, database.ListMentionsByPlatformParams{
-			WorkspaceID: workspaceID,
-			Platform:    platform,
-			Lim:         limit,
-			Off:         offset,
-		})
-	case intent != "":
-		mentions, err = h.q.ListMentionsByIntent(ctx, database.ListMentionsByIntentParams{
-			WorkspaceID: workspaceID,
-			Intent:      database.NullIntentType{IntentType: database.IntentType(intent), Valid: true},
-			Lim:         limit,
-			Off:         offset,
-		})
-	default:
-		mentions, err = h.q.ListMentions(ctx, database.ListMentionsParams{
-			WorkspaceID: workspaceID,
-			Lim:         limit,
-			Off:         offset,
-		})
+	// All filters compose (ANDed) in a single query rather than being mutually
+	// exclusive, and total reflects the full match count, not the page size.
+	params := database.ListMentionsComposedParams{
+		WorkspaceID: workspaceID,
+		Tier:        r.URL.Query().Get("tier"),
+		Status:      r.URL.Query().Get("status"),
+		Platform:    r.URL.Query().Get("platform"),
+		Intent:      r.URL.Query().Get("intent"),
+		Search:      r.URL.Query().Get("search"),
+		Lim:         limit,
+		Off:         offset,
 	}
 
+	mentions, err := h.q.ListMentionsComposed(ctx, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list mentions")
+		return
+	}
+	total, err := h.q.CountMentionsComposed(ctx, params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count mentions")
 		return
 	}
 
@@ -229,7 +184,7 @@ func (h *MentionHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, listResponse{
 		Data:   resp,
-		Total:  len(resp),
+		Total:  int(total),
 		Limit:  limit,
 		Offset: offset,
 	})
