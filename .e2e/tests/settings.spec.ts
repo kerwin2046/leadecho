@@ -334,9 +334,10 @@ test.describe("settings / BYOK keys + extension token", () => {
     page,
   }) => {
     const uniqueSuffix = Date.now();
-    // A long, deterministic fake key. MaskKey keeps key[:7] + "..." + key[-4:].
+    // A long, deterministic fake key. MaskKey keeps key[:4] + "..." + key[-4:]
+    // (a 4-char prefix so short keys can't be fully reconstructed).
     const fakeKey = `sk-e2e-${uniqueSuffix}-FAKEKEYDONOTUSE-${uniqueSuffix}`;
-    const expectedMasked = `${fakeKey.slice(0, 7)}...${fakeKey.slice(-4)}`;
+    const expectedMasked = `${fakeKey.slice(0, 4)}...${fakeKey.slice(-4)}`;
 
     // Pick a provider that is currently EMPTY so we never clobber a real key.
     const before = (await (

@@ -72,10 +72,11 @@ func Decrypt(key []byte, encoded string) (string, error) {
 // MaskKey returns a masked version of an API key for display.
 // e.g. "sk-ant-api03-abc...xyz" → "sk-ant-...cxyz"
 func MaskKey(key string) string {
-	if len(key) <= 8 {
+	// Require enough length that a 4-char prefix and 4-char suffix leave at least
+	// 4 hidden characters in the middle. Below that, the old 7+4 slices overlapped
+	// and revealed the entire key for 9–11 char inputs.
+	if len(key) < 12 {
 		return "****"
 	}
-	prefix := key[:7]
-	suffix := key[len(key)-4:]
-	return prefix + "..." + suffix
+	return key[:4] + "..." + key[len(key)-4:]
 }
