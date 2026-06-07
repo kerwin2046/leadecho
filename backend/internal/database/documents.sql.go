@@ -84,7 +84,7 @@ func (q *Queries) DeleteDocument(ctx context.Context, arg DeleteDocumentParams) 
 
 const getDocument = `-- name: GetDocument :one
 SELECT id, workspace_id, title, content, content_type, source_url, file_size_bytes, chunk_count, is_active, created_at, updated_at FROM documents
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1 AND workspace_id = $2 AND is_active = true
 `
 
 type GetDocumentParams struct {

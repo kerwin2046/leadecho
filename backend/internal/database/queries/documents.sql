@@ -5,7 +5,7 @@ ORDER BY created_at DESC;
 
 -- name: GetDocument :one
 SELECT * FROM documents
-WHERE id = @id AND workspace_id = @workspace_id;
+WHERE id = @id AND workspace_id = @workspace_id AND is_active = true;
 
 -- name: CreateDocument :one
 INSERT INTO documents (

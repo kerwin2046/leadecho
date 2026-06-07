@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,17 @@ import (
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 )
+
+// isHTTPURL reports whether s is an absolute http(s) URL with a host. Used to
+// reject dangerous schemes (javascript:, data:) that would otherwise be stored
+// and rendered into <a href> / Location headers.
+func isHTTPURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
 
 type DocumentHandler struct {
 	q *database.Queries
@@ -100,6 +112,10 @@ func (h *DocumentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if body.ContentType == "" {
 		body.ContentType = "markdown"
 	}
+	if body.SourceURL != "" && !isHTTPURL(body.SourceURL) {
+		writeError(w, http.StatusBadRequest, "source_url must be an http(s) URL")
+		return
+	}
 
 	params := database.CreateDocumentParams{
 		WorkspaceID: wsID,
@@ -153,7 +169,10 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsID,
 		Title:       title,
 		Content:     content,
-		IsActive:    true,
+		// Preserve the current active state — GetDocument above already filters
+		// to is_active=true, so a soft-deleted doc 404s rather than being silently
+		// resurrected by a hardcoded true.
+		IsActive: existing.IsActive,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update document")

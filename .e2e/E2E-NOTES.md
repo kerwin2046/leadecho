@@ -40,6 +40,32 @@ Branch: `e2e-hardening` (off `master` @ 884134e). No pushes without approval.
   router-aware and already correct.)
 - Verified by: tests/auth.spec.ts (asserts post-auth URL is /app/inbox).
 
+## Bug-hunt (48 findings) — fix batches
+### Batch A [DONE, committed] correctness/validation/error-mapping
+- Inbox tier list/count mismatch (HIGH): rewrote ListMentionsFiltered as the exact
+  NULL-safe complement of the other two tiers → high-score non-lead mentions no
+  longer vanish from every tab. (mentions.sql + mentions.sql.go)
+- mentions: UpdateStatus invalid→400, not-found→404; added awareness_level to response.
+- leads: UpdateStage not-found→404 (was 500), stage validation→400 (Create+UpdateStage).
+- keywords: duplicate→409 (was 500), platform/match_type validation→400, term trim,
+  Delete malformed-id→400 & non-existent→404. NOTE: keyword platforms is text[] with 7
+  crawler sources (reddit/hackernews/devto/lobsters/indiehackers/twitter/linkedin) — NOT
+  the 4-value platform_type enum; match types broad/exact/phrase/contains.
+- documents: GetDocument filters is_active=true (deleted→404); Update preserves IsActive
+  (no resurrection); source_url must be http(s) (stored-XSS guard).
+- profiles: embed-FIRST on update (no data loss on embed failure); truthful pain_points
+  in responses; Delete non-existent→404; name trim.
+- Regression spec: tests/api-regression.spec.ts (11 tests, all green).
+
+### Remaining batches (TODO)
+- B security: open-redirect /r/{code}, SSRF webhook test, ENCRYPTION_KEY/JWT_SECRET
+  required in non-dev.
+- C engine: onboarding Complete (nil subreddits + error handling + idempotency),
+  7 sidecar crawlers missing Status, profile is_active not respected by scorer,
+  analytics silent-zero error swallowing.
+- D frontend: api.ts raw-error leak, sidebar duplicate /analytics, logo→landing,
+  no react-query error surface.
+
 ## Feature surface to cover
 Pages: index(overview), inbox, pipeline, keywords, knowledge-base, profiles,
 analytics, alerts, workflows, browser-sessions, settings, onboarding, + auth.

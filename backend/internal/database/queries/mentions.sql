@@ -130,9 +130,14 @@ ORDER BY relevance_score DESC, created_at DESC
 LIMIT @lim OFFSET @off;
 
 -- name: ListMentionsFiltered :many
+-- "filtered" is the ELSE bucket of CountMentionsByTier: everything that is
+-- neither leads_ready (score>=7 AND lead-intent) nor worth_watching
+-- (score in [4,7)). COALESCE keeps NULL score/intent rows in this tier so the
+-- list and the tier counts stay in lockstep.
 SELECT * FROM mentions
 WHERE workspace_id = @workspace_id
-AND (relevance_score IS NULL OR relevance_score < 4.0)
+AND NOT (COALESCE(relevance_score, 0) >= 7.0 AND COALESCE(intent IN ('buy_signal', 'recommendation_ask', 'complaint'), false))
+AND NOT (COALESCE(relevance_score, 0) >= 4.0 AND COALESCE(relevance_score, 0) < 7.0)
 ORDER BY created_at DESC
 LIMIT @lim OFFSET @off;
 

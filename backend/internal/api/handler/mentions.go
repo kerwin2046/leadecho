@@ -2,16 +2,24 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 )
+
+// validMentionStatuses mirrors the mention_status enum in the database.
+var validMentionStatuses = map[string]bool{
+	"new": true, "reviewed": true, "replied": true,
+	"archived": true, "spam": true,
+}
 
 type MentionHandler struct {
 	q *database.Queries
@@ -47,6 +55,7 @@ type MentionResponse struct {
 	PlatformCreatedAt     *time.Time      `json:"platform_created_at"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
+	AwarenessLevel        *string         `json:"awareness_level"`
 }
 
 func mentionToResponse(m database.Mention) MentionResponse {
@@ -100,6 +109,9 @@ func mentionToResponse(m database.Mention) MentionResponse {
 	}
 	if m.PlatformCreatedAt.Valid {
 		r.PlatformCreatedAt = &m.PlatformCreatedAt.Time
+	}
+	if m.AwarenessLevel.Valid {
+		r.AwarenessLevel = &m.AwarenessLevel.String
 	}
 	return r
 }
@@ -253,12 +265,21 @@ func (h *MentionHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !validMentionStatuses[body.Status] {
+		writeError(w, http.StatusBadRequest, "invalid status")
+		return
+	}
+
 	m, err := h.q.UpdateMentionStatus(ctx, database.UpdateMentionStatusParams{
 		Status:      database.MentionStatus(body.Status),
 		ID:          id,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "mention not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update mention")
 		return
 	}

@@ -2,14 +2,37 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 )
+
+// validKeywordPlatforms is the set of crawlable sources a keyword can target.
+// keywords.platforms is a text[] (NOT the 4-value platform_type enum), so it
+// includes the extra crawler sources the UI offers (devto/lobsters/indiehackers).
+// validMatchTypes mirrors the match strategies the UI offers; the signal matcher
+// (internal/monitor/filter.go) treats everything but "exact" as a contains match.
+var (
+	validKeywordPlatforms = map[string]bool{
+		"reddit": true, "hackernews": true, "devto": true, "lobsters": true,
+		"indiehackers": true, "twitter": true, "linkedin": true,
+	}
+	validMatchTypes = map[string]bool{"contains": true, "broad": true, "exact": true, "phrase": true}
+)
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 type KeywordHandler struct {
 	q *database.Queries
@@ -86,6 +109,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	body.Term = strings.TrimSpace(body.Term)
 	if body.Term == "" {
 		writeError(w, http.StatusBadRequest, "term is required")
 		return
@@ -93,8 +117,22 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if body.MatchType == "" {
 		body.MatchType = "contains"
 	}
+	if !validMatchTypes[body.MatchType] {
+		writeError(w, http.StatusBadRequest, "invalid match_type")
+		return
+	}
 	if body.Platforms == nil {
 		body.Platforms = []string{"hackernews", "reddit", "twitter", "linkedin"}
+	}
+	if len(body.Platforms) == 0 {
+		writeError(w, http.StatusBadRequest, "at least one platform is required")
+		return
+	}
+	for _, p := range body.Platforms {
+		if !validKeywordPlatforms[p] {
+			writeError(w, http.StatusBadRequest, "invalid platform: "+p)
+			return
+		}
 	}
 	if body.NegativeTerms == nil {
 		body.NegativeTerms = []string{}
@@ -113,6 +151,10 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Subreddits:    body.Subreddits,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "keyword already exists")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create keyword")
 		return
 	}
@@ -190,6 +232,20 @@ func (h *KeywordHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *KeywordHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	wsID := middleware.WorkspaceID(r.Context())
 	id := chi.URLParam(r, "id")
+	if !parseUUID(id).Valid {
+		writeError(w, http.StatusBadRequest, "invalid keyword id")
+		return
+	}
+	// Confirm the keyword exists in this workspace so we return 404 (not a false
+	// "deleted") for non-existent or cross-workspace ids.
+	if _, err := h.q.GetKeyword(r.Context(), database.GetKeywordParams{ID: id, WorkspaceID: wsID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "keyword not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete keyword")
+		return
+	}
 	if err := h.q.DeleteKeyword(r.Context(), database.DeleteKeywordParams{ID: id, WorkspaceID: wsID}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete keyword")
 		return

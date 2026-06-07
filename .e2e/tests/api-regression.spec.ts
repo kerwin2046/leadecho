@@ -1,0 +1,214 @@
+import { test, expect } from "@playwright/test";
+import { execSync } from "node:child_process";
+
+// Seed a "tricky" mention directly in the DB: high relevance (9.0) but a
+// non-lead intent (comparison). Per CountMentionsByTier this belongs to the
+// "filtered" bucket; before the fix it fell through all three tier LIST queries
+// and was unreachable from every inbox tab. Idempotent.
+function seedTierProbe(): string {
+  const platformId = "hn_tier_probe_regression";
+  execSync(
+    `docker exec leadecho-e2e-postgres psql -U leadecho -d leadecho_dev -c ` +
+      `"INSERT INTO mentions (workspace_id, platform, platform_id, url, content, status, relevance_score, intent) ` +
+      `SELECT u.workspace_id,'hackernews','${platformId}','https://news.ycombinator.com/item?id=probe',` +
+      `'comparing analytics tools','new',9.0,'comparison' FROM users u WHERE u.email='e2e-tester@leadecho.test' ` +
+      `ON CONFLICT DO NOTHING;"`,
+    { stdio: "pipe" },
+  );
+  return platformId;
+}
+
+/**
+ * API-level regression tests locking in the backend correctness/validation fixes
+ * from the adversarial bug-hunt. These hit the proxied /api directly (fast,
+ * precise) using the authenticated storageState from the global setup.
+ *
+ * Each test cleans up anything it creates.
+ */
+
+test.describe("backend regressions: error mapping & validation", () => {
+  // ── mentions: tier list/count consistency + status validation ──
+  test("high-score non-lead mention is reachable via the 'filtered' tier (no vanishing)", async ({
+    page,
+  }) => {
+    const probe = seedTierProbe();
+    const idsIn = async (tier: string) => {
+      const list = await (
+        await page.request.get(`/api/v1/mentions?tier=${tier}&limit=1000`)
+      ).json();
+      const items = Array.isArray(list) ? list : list.data ?? list.mentions;
+      return items.map((m: any) => m.platform_id);
+    };
+    // Belongs to "filtered" (score>=7 but intent not a lead intent) — must be
+    // present there and absent from leads_ready / worth_watching.
+    expect(await idsIn("filtered"), "probe reachable in filtered tier").toContain(
+      probe,
+    );
+    expect(await idsIn("leads_ready")).not.toContain(probe);
+    expect(await idsIn("worth_watching")).not.toContain(probe);
+  });
+
+  test("mention status update: invalid status -> 400, bogus id -> 404", async ({
+    page,
+  }) => {
+    const bad = await page.request.patch(
+      "/api/v1/mentions/00000000-0000-0000-0000-0000000000ff/status",
+      { data: { status: "not-a-real-status" } },
+    );
+    expect(bad.status()).toBe(400);
+
+    const missing = await page.request.patch(
+      "/api/v1/mentions/00000000-0000-0000-0000-0000000000ff/status",
+      { data: { status: "reviewed" } },
+    );
+    expect(missing.status()).toBe(404);
+  });
+
+  // ── leads: stage validation + not-found mapping ──
+  test("lead stage update: invalid stage -> 400, non-existent lead -> 404 (not 500)", async ({
+    page,
+  }) => {
+    const badStage = await page.request.patch(
+      "/api/v1/leads/00000000-0000-0000-0000-0000000000ff/stage",
+      { data: { stage: "totally-invalid" } },
+    );
+    expect(badStage.status()).toBe(400);
+
+    const missing = await page.request.patch(
+      "/api/v1/leads/00000000-0000-0000-0000-0000000000ff/stage",
+      { data: { stage: "qualified" } },
+    );
+    expect(missing.status(), "non-existent lead must be 404, not 500").toBe(404);
+  });
+
+  // ── keywords: duplicate -> 409, invalid platform -> 400, delete semantics ──
+  test("keyword create: duplicate term -> 409; invalid platform -> 400", async ({
+    page,
+  }) => {
+    const term = `e2e-reg-kw-${Date.now()}`;
+    const first = await page.request.post("/api/v1/keywords", {
+      data: { term, platforms: ["reddit"], match_type: "broad" },
+    });
+    expect(first.status()).toBe(201);
+    const id = (await first.json()).id;
+
+    const dup = await page.request.post("/api/v1/keywords", {
+      data: { term, platforms: ["reddit"], match_type: "broad" },
+    });
+    expect(dup.status(), "duplicate term must be 409, not 500").toBe(409);
+
+    const badPlatform = await page.request.post("/api/v1/keywords", {
+      data: { term: `${term}-x`, platforms: ["myspace"], match_type: "broad" },
+    });
+    expect(badPlatform.status(), "invalid platform must be 400").toBe(400);
+
+    // cleanup
+    expect((await page.request.delete(`/api/v1/keywords/${id}`)).status()).toBe(
+      200,
+    );
+  });
+
+  test("keyword delete: malformed id -> 400, non-existent -> 404", async ({
+    page,
+  }) => {
+    expect(
+      (await page.request.delete("/api/v1/keywords/not-a-uuid")).status(),
+      "malformed id -> 400",
+    ).toBe(400);
+    expect(
+      (
+        await page.request.delete(
+          "/api/v1/keywords/00000000-0000-0000-0000-0000000000ff",
+        )
+      ).status(),
+      "non-existent -> 404 (not a false 200 'deleted')",
+    ).toBe(404);
+  });
+
+  // ── documents: no soft-delete resurrection, source_url scheme guard ──
+  test("document update does not resurrect a soft-deleted doc; deleted doc 404s", async ({
+    page,
+  }) => {
+    const create = await page.request.post("/api/v1/documents", {
+      data: { title: `reg-doc-${Date.now()}`, content: "hello world" },
+    });
+    expect(create.status()).toBe(201);
+    const id = (await create.json()).id;
+
+    expect((await page.request.delete(`/api/v1/documents/${id}`)).status()).toBe(
+      200,
+    );
+    // After soft-delete: GET 404, and UPDATE must NOT revive it.
+    expect((await page.request.get(`/api/v1/documents/${id}`)).status()).toBe(
+      404,
+    );
+    const revive = await page.request.put(`/api/v1/documents/${id}`, {
+      data: { title: "revived?", content: "should not work" },
+    });
+    expect(revive.status(), "updating a deleted doc must 404, not resurrect").toBe(
+      404,
+    );
+  });
+
+  test("document source_url rejects non-http(s) (javascript:) scheme", async ({
+    page,
+  }) => {
+    const xss = await page.request.post("/api/v1/documents", {
+      data: {
+        title: `reg-xss-${Date.now()}`,
+        content: "x",
+        source_url: "javascript:alert(1)",
+      },
+    });
+    expect(xss.status(), "javascript: source_url must be 400").toBe(400);
+  });
+
+  // ── profiles: delete semantics + name validation + truthful pain_points ──
+  test("profile delete non-existent -> 404; whitespace name -> 400", async ({
+    page,
+  }) => {
+    expect(
+      (
+        await page.request.delete(
+          "/api/v1/profiles/00000000-0000-0000-0000-0000000000ff",
+        )
+      ).status(),
+    ).toBe(404);
+
+    const ws = await page.request.post("/api/v1/profiles", {
+      data: { name: "   ", description: "x", pain_points: [] },
+    });
+    expect(ws.status(), "whitespace-only name must be 400").toBe(400);
+  });
+
+  test("profile create reports only persisted pain_points (no phantom phrases without an embedder)", async ({
+    page,
+  }) => {
+    const create = await page.request.post("/api/v1/profiles", {
+      data: {
+        name: `reg-prof-${Date.now()}`,
+        description: "x",
+        pain_points: ["phantom phrase A", "phantom phrase B"],
+      },
+    });
+    expect(create.status()).toBe(201);
+    const body = await create.json();
+    // No embedder configured in e2e → phrases are NOT persisted → response must
+    // not claim they were (previously it echoed the request body optimistically).
+    expect(
+      body.pain_points,
+      "pain_points must reflect what was actually stored",
+    ).toEqual([]);
+    // cleanup
+    await page.request.delete(`/api/v1/profiles/${body.id}`);
+  });
+
+  test("mention response includes awareness_level field", async ({ page }) => {
+    const list = await (
+      await page.request.get("/api/v1/mentions?limit=1")
+    ).json();
+    const items = Array.isArray(list) ? list : list.data ?? list.mentions;
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]).toHaveProperty("awareness_level");
+  });
+});

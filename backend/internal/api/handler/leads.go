@@ -2,16 +2,25 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 )
+
+// validLeadStages is the set of accepted pipeline stages (mirrors the
+// lead_stage enum in the database).
+var validLeadStages = map[string]bool{
+	"prospect": true, "qualified": true, "engaged": true,
+	"converted": true, "lost": true,
+}
 
 type LeadHandler struct {
 	q *database.Queries
@@ -178,6 +187,10 @@ func (h *LeadHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if body.Stage == "" {
 		body.Stage = "prospect"
 	}
+	if !validLeadStages[body.Stage] {
+		writeError(w, http.StatusBadRequest, "invalid stage")
+		return
+	}
 	if body.Tags == nil {
 		body.Tags = []string{}
 	}
@@ -241,12 +254,21 @@ func (h *LeadHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !validLeadStages[body.Stage] {
+		writeError(w, http.StatusBadRequest, "invalid stage")
+		return
+	}
+
 	l, err := h.q.UpdateLeadStage(ctx, database.UpdateLeadStageParams{
 		Stage:       database.LeadStage(body.Stage),
 		ID:          id,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "lead not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update lead")
 		return
 	}

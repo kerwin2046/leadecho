@@ -3,15 +3,30 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 	"leadecho/internal/embedding"
 )
+
+// storedPhrases returns the pain-point phrases actually persisted for a profile,
+// so API responses never report phrases that weren't saved (e.g. when no
+// embedder is configured or embedding failed).
+func (h *ProfileHandler) storedPhrases(ctx context.Context, profileID string) []string {
+	embeddings, _ := h.q.ListPainPointEmbeddings(ctx, profileID)
+	phrases := make([]string, len(embeddings))
+	for j, e := range embeddings {
+		phrases[j] = e.Phrase
+	}
+	return phrases
+}
 
 type ProfileHandler struct {
 	q        *database.Queries
@@ -99,6 +114,7 @@ func (h *ProfileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	body.Name = strings.TrimSpace(body.Name)
 	if body.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
@@ -118,16 +134,14 @@ func (h *ProfileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Embed and store pain-point phrases
+	// Embed and store pain-point phrases (best effort — requires an embedder).
 	if len(body.PainPoints) > 0 && h.embedder != nil {
-		if err := h.embedAndStorePhrases(r.Context(), profile.ID, wsID, body.PainPoints); err != nil {
-			// Profile created but embedding failed — log and continue
-			writeJSON(w, http.StatusCreated, toProfileResponse(profile, body.PainPoints))
-			return
-		}
+		_ = h.embedAndStorePhrases(r.Context(), profile.ID, wsID, body.PainPoints)
 	}
 
-	writeJSON(w, http.StatusCreated, toProfileResponse(profile, body.PainPoints))
+	// Respond with the phrases that were actually persisted, not the optimistic
+	// request body (which would lie when no embedder is configured).
+	writeJSON(w, http.StatusCreated, toProfileResponse(profile, h.storedPhrases(r.Context(), profile.ID)))
 }
 
 func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +166,8 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := existing.Name
-	if body.Name != "" {
-		name = body.Name
+	if strings.TrimSpace(body.Name) != "" {
+		name = strings.TrimSpace(body.Name)
 	}
 	description := existing.Description
 	if body.Description != "" {
@@ -176,27 +190,54 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-embed phrases if provided
+	// Re-embed phrases if provided. Embed FIRST and only replace the existing
+	// embeddings once the (failable) embed succeeds, so a transient embedding
+	// failure never wipes the profile's pain points (data-loss guard).
 	if body.PainPoints != nil && h.embedder != nil {
-		h.q.DeletePainPointEmbeddingsByProfile(r.Context(), id)
 		if len(body.PainPoints) > 0 {
-			h.embedAndStorePhrases(r.Context(), id, wsID, body.PainPoints)
+			vectors, err := h.embedder.EmbedTexts(r.Context(), body.PainPoints)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "failed to embed pain points; existing phrases preserved")
+				return
+			}
+			h.q.DeletePainPointEmbeddingsByProfile(r.Context(), id)
+			for i, phrase := range body.PainPoints {
+				if i >= len(vectors) {
+					break
+				}
+				h.q.CreatePainPointEmbedding(r.Context(), database.CreatePainPointEmbeddingParams{
+					ProfileID:   id,
+					WorkspaceID: wsID,
+					Phrase:      phrase,
+					Embedding:   &vectors[i],
+				})
+			}
+		} else {
+			// Explicit empty list → clear stored phrases.
+			h.q.DeletePainPointEmbeddingsByProfile(r.Context(), id)
 		}
 	}
 
-	// Fetch current phrases
-	embeddings, _ := h.q.ListPainPointEmbeddings(r.Context(), id)
-	phrases := make([]string, len(embeddings))
-	for j, e := range embeddings {
-		phrases[j] = e.Phrase
-	}
-
-	writeJSON(w, http.StatusOK, toProfileResponse(profile, phrases))
+	writeJSON(w, http.StatusOK, toProfileResponse(profile, h.storedPhrases(r.Context(), id)))
 }
 
 func (h *ProfileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	wsID := middleware.WorkspaceID(r.Context())
 	id := chi.URLParam(r, "id")
+	if !parseUUID(id).Valid {
+		writeError(w, http.StatusBadRequest, "invalid profile id")
+		return
+	}
+	// Confirm ownership so non-existent / cross-workspace ids return 404 rather
+	// than a false "deleted".
+	if _, err := h.q.GetMonitoringProfile(r.Context(), database.GetMonitoringProfileParams{ID: id, WorkspaceID: wsID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "profile not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete profile")
+		return
+	}
 	if err := h.q.DeleteMonitoringProfile(r.Context(), database.DeleteMonitoringProfileParams{ID: id, WorkspaceID: wsID}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete profile")
 		return

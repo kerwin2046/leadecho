@@ -568,7 +568,8 @@ func (q *Queries) ListMentionsByStatus(ctx context.Context, arg ListMentionsBySt
 const listMentionsFiltered = `-- name: ListMentionsFiltered :many
 SELECT id, workspace_id, keyword_id, platform, platform_id, url, title, content, content_tsv, author_username, author_profile_url, author_karma, author_account_age_days, relevance_score, intent, conversion_probability, status, assigned_to, platform_metadata, engagement_metrics, keyword_matches, platform_created_at, created_at, updated_at, content_embedding, scoring_metadata, awareness_level FROM mentions
 WHERE workspace_id = $1
-AND (relevance_score IS NULL OR relevance_score < 4.0)
+AND NOT (COALESCE(relevance_score, 0) >= 7.0 AND COALESCE(intent IN ('buy_signal', 'recommendation_ask', 'complaint'), false))
+AND NOT (COALESCE(relevance_score, 0) >= 4.0 AND COALESCE(relevance_score, 0) < 7.0)
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $2
 `
