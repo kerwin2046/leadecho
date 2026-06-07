@@ -203,6 +203,50 @@ test.describe("backend regressions: error mapping & validation", () => {
     await page.request.delete(`/api/v1/profiles/${body.id}`);
   });
 
+  // ── security: SSRF guard + open-redirect guard (validation only, no egress) ──
+  test("webhook test rejects non-https and disallowed hosts (SSRF guard)", async ({
+    page,
+  }) => {
+    // http scheme -> 400 (would otherwise allow http://169.254.169.254 metadata SSRF)
+    const httpScheme = await page.request.post(
+      "/api/v1/notifications/webhooks/test",
+      { data: { channel: "slack", webhook_url: "http://169.254.169.254/" } },
+    );
+    expect(httpScheme.status()).toBe(400);
+
+    // https but host not on the provider allowlist -> 400 (no connection made)
+    const badHost = await page.request.post(
+      "/api/v1/notifications/webhooks/test",
+      { data: { channel: "slack", webhook_url: "https://evil.example.com/x" } },
+    );
+    expect(badHost.status()).toBe(400);
+
+    // discord with wrong path -> 400
+    const badPath = await page.request.post(
+      "/api/v1/notifications/webhooks/test",
+      { data: { channel: "discord", webhook_url: "https://discord.com/not-a-webhook" } },
+    );
+    expect(badPath.status()).toBe(400);
+  });
+
+  test("UTM link create rejects non-http(s) destination (open-redirect guard)", async ({
+    page,
+  }) => {
+    for (const dest of ["javascript:alert(1)", "data:text/html,x", "ftp://x/y"]) {
+      const res = await page.request.post("/api/v1/utm-links", {
+        data: { destination_url: dest, utm_source: "x" },
+      });
+      expect(res.status(), `${dest} must be rejected`).toBe(400);
+    }
+    // A valid destination still works (and is cleaned up).
+    const ok = await page.request.post("/api/v1/utm-links", {
+      data: { destination_url: "https://example.com/landing", utm_source: "e2e" },
+    });
+    expect(ok.status()).toBe(201);
+    const id = (await ok.json()).id;
+    if (id) await page.request.delete(`/api/v1/utm-links/${id}`);
+  });
+
   test("mention response includes awareness_level field", async ({ page }) => {
     const list = await (
       await page.request.get("/api/v1/mentions?limit=1")

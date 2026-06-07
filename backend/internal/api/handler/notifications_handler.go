@@ -2,9 +2,15 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -12,6 +18,103 @@ import (
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
 )
+
+// allowedWebhookHosts pins outbound webhook tests to the real provider hosts so
+// the endpoint can't be abused as an SSRF probe against internal services.
+var allowedWebhookHosts = map[string]map[string]bool{
+	"slack": {"hooks.slack.com": true},
+	"discord": {
+		"discord.com": true, "discordapp.com": true,
+		"ptb.discord.com": true, "canary.discord.com": true,
+	},
+}
+
+// validateWebhookURL enforces https + a provider-specific host allowlist.
+func validateWebhookURL(channel, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("invalid webhook URL")
+	}
+	if u.Scheme != "https" {
+		return errors.New("webhook URL must be https")
+	}
+	hosts := allowedWebhookHosts[channel]
+	if !hosts[strings.ToLower(u.Hostname())] {
+		return fmt.Errorf("webhook host not allowed for %s", channel)
+	}
+	if channel == "discord" && !strings.HasPrefix(u.Path, "/api/webhooks/") {
+		return errors.New("invalid discord webhook path")
+	}
+	return nil
+}
+
+// isDisallowedIP blocks loopback/private/link-local/unspecified and CGNAT ranges.
+func isDisallowedIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	// CGNAT 100.64.0.0/10
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return true
+	}
+	return false
+}
+
+// safeWebhookClient resolves the target itself and refuses to connect to any
+// internal address (re-checked at dial time to defeat DNS rebinding), and
+// disallows redirects.
+func safeWebhookClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout}
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("redirects are not allowed")
+		},
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
+				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+				if err != nil || len(ips) == 0 {
+					return nil, fmt.Errorf("dns lookup failed for %s", host)
+				}
+				for _, ip := range ips {
+					if isDisallowedIP(ip.IP) {
+						return nil, fmt.Errorf("blocked internal address: %s", ip.IP)
+					}
+				}
+				// Dial the already-validated IP to avoid a TOCTOU re-resolution.
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+			},
+		},
+	}
+}
+
+// postWebhook validates + sends a webhook test and treats a non-2xx response as
+// a failure (so a broken webhook never reports a green "sent").
+func postWebhook(ctx context.Context, channel, webhookURL string, payload []byte) error {
+	if err := validateWebhookURL(channel, webhookURL); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := safeWebhookClient(8 * time.Second).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("webhook returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
 
 type NotificationHandler struct {
 	q            *database.Queries
@@ -48,16 +151,18 @@ func (h *NotificationHandler) TestWebhook(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "webhook_url is required for slack")
 			return
 		}
+		if err := validateWebhookURL("slack", body.WebhookURL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		payload, _ := json.Marshal(map[string]string{
 			"text": "LeadEcho test notification — your webhook is working!",
 		})
-		resp, err := http.Post(body.WebhookURL, "application/json", bytes.NewReader(payload))
-		if err != nil {
+		if err := postWebhook(r.Context(), "slack", body.WebhookURL, payload); err != nil {
 			h.logNotif(r, wsID, "slack", body.WebhookURL, string(payload), pgtype.Timestamptz{})
-			writeError(w, http.StatusBadGateway, "webhook request failed: "+err.Error())
+			writeError(w, http.StatusBadGateway, "webhook test failed: "+err.Error())
 			return
 		}
-		resp.Body.Close()
 		h.logNotif(r, wsID, "slack", body.WebhookURL, string(payload), pgtype.Timestamptz{Time: now, Valid: true})
 
 	case "discord":
@@ -65,16 +170,18 @@ func (h *NotificationHandler) TestWebhook(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "webhook_url is required for discord")
 			return
 		}
+		if err := validateWebhookURL("discord", body.WebhookURL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		payload, _ := json.Marshal(map[string]string{
 			"content": "LeadEcho test notification — your webhook is working!",
 		})
-		resp, err := http.Post(body.WebhookURL, "application/json", bytes.NewReader(payload))
-		if err != nil {
+		if err := postWebhook(r.Context(), "discord", body.WebhookURL, payload); err != nil {
 			h.logNotif(r, wsID, "discord", body.WebhookURL, string(payload), pgtype.Timestamptz{})
-			writeError(w, http.StatusBadGateway, "webhook request failed: "+err.Error())
+			writeError(w, http.StatusBadGateway, "webhook test failed: "+err.Error())
 			return
 		}
-		resp.Body.Close()
 		h.logNotif(r, wsID, "discord", body.WebhookURL, string(payload), pgtype.Timestamptz{Time: now, Valid: true})
 
 	case "email":

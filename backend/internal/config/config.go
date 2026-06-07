@@ -2,10 +2,36 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/sethvargo/go-envconfig"
 )
+
+// devJWTSecret is the insecure default used only for local development. It must
+// keep in sync with the JWTSecret env default below.
+const devJWTSecret = "leadecho-dev-secret-change-in-prod"
+
+// Validate enforces production secret hygiene. In any non-development
+// environment it refuses to boot when the JWT secret is missing/default, when
+// the at-rest encryption key is unset, or when the two secrets are reused —
+// since one leaked secret would otherwise forge sessions AND decrypt every
+// stored BYOK key / session cookie.
+func (c *Config) Validate() error {
+	if c.Environment == "development" {
+		return nil
+	}
+	if c.JWTSecret == "" || c.JWTSecret == devJWTSecret {
+		return errors.New("JWT_SECRET must be set to a strong, non-default value outside development")
+	}
+	if c.EncryptionKey == "" {
+		return errors.New("ENCRYPTION_KEY must be set outside development (do not reuse JWT_SECRET)")
+	}
+	if c.EncryptionKey == c.JWTSecret {
+		return errors.New("ENCRYPTION_KEY must differ from JWT_SECRET")
+	}
+	return nil
+}
 
 type Config struct {
 	Port        int    `env:"PORT,default=8090"`
@@ -64,6 +90,9 @@ func Load(ctx context.Context) (*Config, error) {
 	var cfg Config
 	if err := envconfig.Process(ctx, &cfg); err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
 	}
 	return &cfg, nil
 }

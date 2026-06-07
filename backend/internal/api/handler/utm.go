@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"leadecho/internal/api/middleware"
 	"leadecho/internal/database"
@@ -55,6 +56,13 @@ func (h *UTMHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "destination_url and utm_source are required")
 		return
 	}
+	// Only http(s) destinations — the /r/{code} redirect is public and
+	// unauthenticated, so refuse javascript:/data:/arbitrary schemes that would
+	// turn this into an open-redirect / XSS vector.
+	if !isHTTPURL(body.DestinationURL) {
+		writeError(w, http.StatusBadRequest, "destination_url must be an http(s) URL")
+		return
+	}
 
 	medium := body.UTMMedium
 	if medium == "" {
@@ -93,8 +101,8 @@ func (h *UTMHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *UTMHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	wsID := middleware.WorkspaceID(r.Context())
 	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing id")
+	if !parseUUID(id).Valid {
+		writeError(w, http.StatusBadRequest, "invalid link id")
 		return
 	}
 	_ = h.q.DeleteUTMLink(r.Context(), database.DeleteUTMLinkParams{
@@ -109,6 +117,12 @@ func (h *UTMHandler) RedirectUTM(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "code")
 	link, err := h.q.GetUTMLinkByCode(r.Context(), code)
 	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// Defense-in-depth: never emit a non-http(s) Location, even if a dangerous
+	// destination was somehow persisted before validation existed.
+	if !isHTTPURL(link.DestinationUrl) {
 		http.NotFound(w, r)
 		return
 	}
@@ -140,23 +154,21 @@ func isPgUniqueViolation(err error) bool {
 }
 
 func buildUTMDestination(link database.UtmLink) string {
-	dest := link.DestinationUrl
-	params := "utm_source=" + link.UtmSource + "&utm_medium=" + link.UtmMedium
+	u, err := url.Parse(link.DestinationUrl)
+	if err != nil {
+		return link.DestinationUrl
+	}
+	// Merge UTM params into the existing query with proper percent-encoding so
+	// special characters can't inject extra params or corrupt the Location header.
+	q := u.Query()
+	q.Set("utm_source", link.UtmSource)
+	q.Set("utm_medium", link.UtmMedium)
 	if link.UtmCampaign.Valid {
-		params += "&utm_campaign=" + link.UtmCampaign.String
+		q.Set("utm_campaign", link.UtmCampaign.String)
 	}
 	if link.UtmContent.Valid {
-		params += "&utm_content=" + link.UtmContent.String
+		q.Set("utm_content", link.UtmContent.String)
 	}
-	if len(dest) > 0 {
-		sep := "?"
-		for _, c := range dest {
-			if c == '?' {
-				sep = "&"
-				break
-			}
-		}
-		return dest + sep + params
-	}
-	return dest
+	u.RawQuery = q.Encode()
+	return u.String()
 }
