@@ -39,9 +39,9 @@ const platformMeta = {
   quora: {
     label: "Quora",
     color: "bg-purple-600",
-    placeholder: "Paste your m-s cookie value...",
+    placeholder: 'Paste full cookie string (e.g. m-s=xxx; ...)',
     usernamePlaceholder: "Your Quora name",
-    hint: 'Open quora.com, DevTools → Application → Cookies → copy the value of "m-s"',
+    hint: 'Open quora.com, DevTools → Application → Cookies → copy all cookie name=value pairs separated by ";"',
   },
 } as const;
 
