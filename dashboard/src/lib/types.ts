@@ -56,6 +56,7 @@ export interface Lead {
 export interface Keyword {
   id: string;
   workspace_id: string;
+  profile_id: string;
   term: string;
   platforms: Platform[];
   is_active: boolean;
@@ -186,4 +187,86 @@ export interface UTMLink {
   signup_count: number;
   revenue_cents: number;
   created_at: string;
+}
+
+// ─── Team / Auth ────────────────────────────────────────
+
+export type UserRole = "admin" | "editor" | "viewer";
+
+export interface SetupStatus {
+  setup_required: boolean;
+  user_count: number;
+}
+
+export interface InviteDetails {
+  email: string;
+  role: UserRole;
+  expires_at: string;
+  accepted: boolean;
+  expired: boolean;
+  workspace_id: string;
+}
+
+export interface InviteRow {
+  id: string;
+  email: string;
+  role: UserRole;
+  expires_at: string;
+  accepted: boolean;
+  invite_url?: string;
+  created_at: string;
+}
+
+export interface MemberRow {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+}
+
+// ─── Agents ─────────────────────────────────────────────
+
+export type AgentStatus = "active" | "paused" | "error";
+
+export interface Agent {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  status: AgentStatus;
+  is_active: boolean;
+  pain_points: string[];
+  keyword_count: number;
+  pain_point_count: number;
+  last_run_at?: string;
+  last_run_mentions?: number;
+  total_mentions: number;
+  deployed_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentStats {
+  window: number;
+  mentions: number;
+  replies: number;
+  replies_posted: number;
+  leads: number;
+  leads_converted: number;
+}
+
+export interface AgentKeyword {
+  id: string;
+  workspace_id: string;
+  profile_id: string;
+  term: string;
+  platforms: Platform[];
+  is_active: boolean;
+  match_type: string;
+  negative_terms: string[];
+  subreddits: string[];
+  created_at: string;
+  updated_at: string;
 }

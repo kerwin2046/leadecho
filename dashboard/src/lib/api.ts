@@ -15,6 +15,13 @@ import type {
   OnboardingStatus,
   UTMLink,
   ProductAnalysis,
+  SetupStatus,
+  InviteDetails,
+  InviteRow,
+  MemberRow,
+  UserRole,
+  Agent,
+  AgentStats,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -161,6 +168,7 @@ export function listKeywords() {
 }
 
 export function createKeyword(data: {
+  profile_id: string;
   term: string;
   platforms?: string[];
   match_type?: string;
@@ -316,10 +324,32 @@ export interface AuthResponse {
   role: string;
 }
 
-export function registerWithEmail(email: string, password: string, name: string) {
-  return request<AuthResponse>("/auth/register", {
+// First-run admin setup (only works when zero users exist).
+export function getSetupStatus() {
+  return request<SetupStatus>("/auth/setup-status");
+}
+
+export function setupWorkspace(data: {
+  email: string;
+  password: string;
+  name: string;
+  workspace_name?: string;
+}) {
+  return request<AuthResponse>("/auth/setup", {
     method: "POST",
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify(data),
+  });
+}
+
+// Invite acceptance (public — no auth required).
+export function getInviteDetails(token: string) {
+  return request<InviteDetails>(`/auth/invite/${token}`);
+}
+
+export function acceptInvite(token: string, data: { name: string; password: string }) {
+  return request<AuthResponse>(`/auth/invite/${token}/accept`, {
+    method: "POST",
+    body: JSON.stringify(data),
   });
 }
 
@@ -328,6 +358,97 @@ export function loginWithEmail(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+}
+
+// ─── Team membership (admin only) ─────────────────────
+
+export function listInvites() {
+  return request<InviteRow[]>("/auth/invites");
+}
+
+export function createInvite(data: { email: string; role?: UserRole }) {
+  return request<InviteRow & { token: string; invite_url: string }>("/auth/invites", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function revokeInvite(id: string) {
+  return request<{ status: string }>(`/auth/invites/${id}`, { method: "DELETE" });
+}
+
+export function listMembers() {
+  return request<MemberRow[]>("/auth/members");
+}
+
+// ─── Agents ────────────────────────────────────────────
+
+export function listAgents() {
+  return request<Agent[]>("/agents");
+}
+
+export function getAgent(id: string) {
+  return request<Agent>(`/agents/${id}`);
+}
+
+export function getAgentStats(id: string, window: 7 | 30 = 7) {
+  return request<AgentStats>(`/agents/${id}/stats?window=${window}`);
+}
+
+export function createAgent(data: {
+  name: string;
+  description?: string;
+  pain_points?: string[];
+  keywords?: { term: string; platforms?: string[]; subreddits?: string[] }[];
+}) {
+  return request<Agent>("/agents", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateAgent(id: string, data: {
+  name?: string;
+  description?: string;
+  pain_points?: string[];
+}) {
+  return request<Agent>(`/agents/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function pauseAgent(id: string) {
+  return request<Agent>(`/agents/${id}/pause`, { method: "POST" });
+}
+
+export function resumeAgent(id: string) {
+  return request<Agent>(`/agents/${id}/resume`, { method: "POST" });
+}
+
+export function deleteAgent(id: string) {
+  return request<{ status: string }>(`/agents/${id}`, { method: "DELETE" });
+}
+
+// Create a keyword scoped to a specific agent.
+export function createAgentKeyword(agentId: string, data: {
+  term: string;
+  platforms?: string[];
+  subreddits?: string[];
+  match_type?: string;
+  negative_terms?: string[];
+}) {
+  return request<Keyword>("/keywords", {
+    method: "POST",
+    body: JSON.stringify({ profile_id: agentId, ...data }),
+  });
+}
+
+export function listAgentKeywords(agentId: string) {
+  // Reuse the general keywords endpoint — filter client-side by profile_id.
+  return request<Keyword[]>("/keywords").then((kws) =>
+    kws.filter((k) => k.profile_id === agentId),
+  );
 }
 
 // ─── AI (Intent Classification + Reply Drafting) ──────
@@ -377,7 +498,7 @@ export function deleteSession(platform: string) {
 }
 
 export function testSession(platform: string) {
-  return request<{ pinchtab_online: boolean; message: string }>(
+  return request<{ pinchtab_online: boolean; cookie_valid: boolean; message: string }>(
     `/settings/sessions/${platform}/test`,
     { method: "POST" },
   );

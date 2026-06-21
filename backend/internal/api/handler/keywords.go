@@ -46,6 +46,7 @@ func NewKeywordHandler(q *database.Queries) *KeywordHandler {
 type KeywordResponse struct {
 	ID            string   `json:"id"`
 	WorkspaceID   string   `json:"workspace_id"`
+	ProfileID     string   `json:"profile_id"`
 	Term          string   `json:"term"`
 	Platforms     []string `json:"platforms"`
 	IsActive      bool     `json:"is_active"`
@@ -56,14 +57,15 @@ type KeywordResponse struct {
 	UpdatedAt     string   `json:"updated_at"`
 }
 
-func toKeywordResponse(id, wsID, term string, platforms []string, isActive bool, matchType string, negTerms, subreddits []string, createdAt, updatedAt time.Time) KeywordResponse {
+func toKeywordResponse(id, wsID, profileID, term string, platforms []string, isActive bool, matchType string, negTerms, subreddits []string, createdAt, updatedAt time.Time) KeywordResponse {
 	return KeywordResponse{
 		ID:            id,
 		WorkspaceID:   wsID,
+		ProfileID:     profileID,
 		Term:          term,
 		Platforms:     platforms,
 		IsActive:      isActive,
-		MatchType:     matchType,
+		MatchType:      matchType,
 		NegativeTerms: negTerms,
 		Subreddits:    subreddits,
 		CreatedAt:     createdAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -80,7 +82,7 @@ func (h *KeywordHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]KeywordResponse, len(keywords))
 	for i, k := range keywords {
-		resp[i] = toKeywordResponse(k.ID, k.WorkspaceID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt)
+		resp[i] = toKeywordResponse(k.ID, k.WorkspaceID, k.ProfileID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -93,13 +95,14 @@ func (h *KeywordHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "keyword not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toKeywordResponse(k.ID, k.WorkspaceID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
+	writeJSON(w, http.StatusOK, toKeywordResponse(k.ID, k.WorkspaceID, k.ProfileID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
 }
 
 func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	wsID := middleware.WorkspaceID(r.Context())
 
 	var body struct {
+		ProfileID     string   `json:"profile_id"`
 		Term          string   `json:"term"`
 		Platforms     []string `json:"platforms"`
 		MatchType     string   `json:"match_type"`
@@ -113,6 +116,10 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	body.Term = strings.TrimSpace(body.Term)
 	if body.Term == "" {
 		writeError(w, http.StatusBadRequest, "term is required")
+		return
+	}
+	if body.ProfileID == "" {
+		writeError(w, http.StatusBadRequest, "profile_id is required")
 		return
 	}
 	if body.MatchType == "" {
@@ -144,6 +151,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	k, err := h.q.CreateKeyword(r.Context(), database.CreateKeywordParams{
 		WorkspaceID:   wsID,
+		ProfileID:     body.ProfileID,
 		Term:          body.Term,
 		Platforms:     body.Platforms,
 		IsActive:      true,
@@ -159,7 +167,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create keyword")
 		return
 	}
-	writeJSON(w, http.StatusCreated, toKeywordResponse(k.ID, k.WorkspaceID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
+	writeJSON(w, http.StatusCreated, toKeywordResponse(k.ID, k.WorkspaceID, k.ProfileID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
 }
 
 func (h *KeywordHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +247,7 @@ func (h *KeywordHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update keyword")
 		return
 	}
-	writeJSON(w, http.StatusOK, toKeywordResponse(k.ID, k.WorkspaceID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
+	writeJSON(w, http.StatusOK, toKeywordResponse(k.ID, k.WorkspaceID, k.ProfileID, k.Term, k.Platforms, k.IsActive, k.MatchType, k.NegativeTerms, k.Subreddits, k.CreatedAt, k.UpdatedAt))
 }
 
 func (h *KeywordHandler) Delete(w http.ResponseWriter, r *http.Request) {

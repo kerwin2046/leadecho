@@ -3,12 +3,98 @@ package monitor
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"leadecho/internal/ai"
 	"leadecho/internal/database"
 )
+
+// RunAutoScorer is a long-lived goroutine that periodically scores every unscored
+// mention (not just the ones from the most recent crawl). It acts as a backfill +
+// safety net for mentions that were inserted while the pipeline was down.
+func (m *Monitor) RunAutoScorer(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	m.logger.Info().Dur("interval", interval).Msg("auto-scorer started")
+
+	// Run once immediately
+	m.scoreAllUnscored(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.logger.Info().Msg("auto-scorer stopped")
+			return
+		case <-ticker.C:
+			m.scoreAllUnscored(ctx)
+		}
+	}
+}
+
+// scoreAllUnscored processes EVERY unscored mention across all workspaces.
+func (m *Monitor) scoreAllUnscored(ctx context.Context) {
+	allKWs, err := m.q.ListAllActiveKeywords(ctx)
+	if err != nil {
+		m.logger.Error().Err(err).Msg("auto-scorer: failed to list active keywords")
+		return
+	}
+	if len(allKWs) == 0 {
+		return
+	}
+
+	seen := map[string]bool{}
+	var wsList []string
+	for _, kw := range allKWs {
+		if !seen[kw.WorkspaceID] {
+			seen[kw.WorkspaceID] = true
+			wsList = append(wsList, kw.WorkspaceID)
+		}
+	}
+
+	totalScored := 0
+	for _, wsID := range wsList {
+		mentions, err := m.q.ListUnclassifiedMentions(ctx, database.ListUnclassifiedMentionsParams{
+			WorkspaceID: wsID,
+			Lim:         200,
+		})
+		if err != nil {
+			m.logger.Error().Err(err).Str("ws_id", wsID).Msg("auto-scorer: query failed")
+			continue
+		}
+
+		alerts := make([]mentionAlert, 0, len(mentions))
+		for _, m := range mentions {
+			if m.RelevanceScore.Valid {
+				continue
+			}
+			title := ""
+			if m.Title.Valid {
+				title = m.Title.String
+			}
+			alerts = append(alerts, mentionAlert{
+				ID:          m.ID,
+				WorkspaceID: m.WorkspaceID,
+				Platform:    string(m.Platform),
+				Title:       title,
+				URL:         m.Url,
+				Author:      m.AuthorUsername.String,
+				Content:     m.Content,
+			})
+		}
+
+		if len(alerts) > 0 {
+			m.batchScoreMentions(ctx, wsID, alerts)
+			totalScored += len(alerts)
+		}
+	}
+
+	if totalScored > 0 {
+		m.logger.Info().Int("scored", totalScored).Msg("auto-scorer: batch complete")
+	}
+}
 
 // batchScoreMentions runs the 4-stage auto-scoring pipeline on newly inserted mentions.
 // Called after each workspace's crawl batch, before notifications.
@@ -66,7 +152,7 @@ func (m *Monitor) batchScoreMentions(ctx context.Context, wsID string, alerts []
 
 				// Store the embedding
 				if err := m.q.UpdateMentionEmbedding(ctx, database.UpdateMentionEmbeddingParams{
-					ContentEmbedding: vectors[i],
+					ContentEmbedding: &vectors[i],
 					ID:               a.ID,
 				}); err != nil {
 					m.logger.Error().Err(err).Str("mention_id", a.ID).Msg("scorer: failed to store embedding")

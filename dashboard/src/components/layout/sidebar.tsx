@@ -6,23 +6,25 @@ import {
   BarChart3,
   BookOpen,
   Zap,
-  Search,
   Target,
   Globe,
   Bell,
   Settings,
+  Users,
+  Bot,
 } from "lucide-react";
 
 const navItems = [
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/pipeline", label: "Pipeline", icon: GitBranch },
+  { to: "/agents", label: "Agents", icon: Bot },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
   { to: "/workflows", label: "Workflows", icon: Zap },
-  { to: "/keywords", label: "Keywords", icon: Search },
   { to: "/profiles", label: "Profiles", icon: Target },
   { to: "/browser-sessions", label: "Browser", icon: Globe },
   { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/members", label: "Members", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

@@ -25,3 +25,11 @@ sql:
               import: "github.com/pgvector/pgvector-go"
               type: "Vector"
               pointer: true
+          # content_embedding is nullable (filled in asynchronously by the
+          # embedder). Force a pointer so a NULL row scans to nil instead of
+          # panicking in pgvector's DecodeBinary on an empty buffer.
+          - column: "mentions.content_embedding"
+            go_type:
+              import: "github.com/pgvector/pgvector-go"
+              type: "Vector"
+              pointer: true

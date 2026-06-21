@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   CardHeader,
@@ -11,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import { loginWithEmail } from "@/lib/api";
+import { getSetupStatus, loginWithEmail } from "@/lib/api";
 
 export const Route = createFileRoute("/_auth/login")({
   component: LoginPage,
@@ -22,6 +23,13 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // If first-run setup hasn't happened, surface a link to /setup.
+  const { data: setup } = useQuery({
+    queryKey: ["setup-status"],
+    queryFn: getSetupStatus,
+    retry: false,
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,13 +120,20 @@ function LoginPage() {
         </a>
       </CardContent>
       <CardFooter className="justify-center">
-        <Text as="p" className="text-xs text-muted-foreground text-center">
-          Don't have an account?{" "}
-          <Link to="/register" className="underline hover:text-foreground">
-            Register
-          </Link>
-        </Text>
+        {setup?.setup_required ? (
+          <Text as="p" className="text-xs text-muted-foreground text-center">
+            First time here?{" "}
+            <Link to="/setup" className="underline hover:text-foreground">
+              Set up the workspace
+            </Link>
+          </Text>
+        ) : (
+          <Text as="p" className="text-xs text-muted-foreground text-center">
+            Don't have an account? Ask a workspace admin to invite you.
+          </Text>
+        )}
       </CardFooter>
     </Card>
   );
 }
+

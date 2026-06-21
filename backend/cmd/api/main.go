@@ -109,6 +109,7 @@ func main() {
 
 	mon := monitor.New(queries, logger, cfg.ResendAPIKey, embedder, aiProvider, pinchtab, camoufox, scrapling, encKey)
 	go mon.Run(ctx, 5*time.Minute)
+	go mon.RunAutoScorer(ctx, 3*time.Minute)   // backfill + periodic auto-score
 
 	// Build router
 	router := api.NewRouter(logger, db, redis, cfg, embedder, pinchtab, scrapling, mon)

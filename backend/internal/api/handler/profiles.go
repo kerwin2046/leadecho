@@ -128,6 +128,8 @@ func (h *ProfileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:        body.Name,
 		Description: body.Description,
 		IsActive:    true,
+		Status:      "active",
+		DeployedBy:  middleware.UserUUID(r.Context()),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create profile")
@@ -184,6 +186,7 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Name:        name,
 		Description: description,
 		IsActive:    isActive,
+		Status:      existing.Status,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update profile")

@@ -83,7 +83,7 @@ WHERE id = @id AND workspace_id = @workspace_id
 RETURNING *;
 
 -- name: ListUnclassifiedMentions :many
-SELECT * FROM mentions
+SELECT id, workspace_id, keyword_id, platform, platform_id, url, title, content, content_tsv, author_username, author_profile_url, author_karma, author_account_age_days, relevance_score, intent, conversion_probability, status, assigned_to, platform_metadata, engagement_metrics, keyword_matches, platform_created_at, created_at, updated_at, scoring_metadata, awareness_level FROM mentions
 WHERE workspace_id = @workspace_id AND intent IS NULL
 ORDER BY created_at DESC
 LIMIT @lim;
@@ -95,15 +95,14 @@ UPDATE mentions
 SET content_embedding = @content_embedding
 WHERE id = @id;
 
--- name: UpdateMentionScoring :one
+-- name: UpdateMentionScoring :exec
 UPDATE mentions
 SET intent = @intent,
     conversion_probability = @conversion_probability,
     relevance_score = @relevance_score,
     scoring_metadata = @scoring_metadata,
     awareness_level = @awareness_level
-WHERE id = @id AND workspace_id = @workspace_id
-RETURNING *;
+WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: UpdateMentionAwarenessLevel :exec
 UPDATE mentions

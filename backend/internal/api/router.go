@@ -51,8 +51,14 @@ func NewRouter(logger zerolog.Logger, db *pgxpool.Pool, redis *goredis.Client, c
 		})
 
 		// Email auth routes (always available)
-		email := auth.NewEmailHandler(cfg.JWTSecret, cfg.ResendAPIKey, queries, logger)
-		r.Post("/auth/register", email.Register)
+		email := auth.NewEmailHandlerWithFrontend(cfg.JWTSecret, cfg.ResendAPIKey, cfg.FrontendURL, queries, logger)
+		// First-run admin setup — public, but only works when zero users exist.
+		r.Get("/auth/setup-status", email.SetupStatus)
+		r.Post("/auth/setup", email.Setup)
+		// Invite acceptance — public (the recipient doesn't have an account yet).
+		r.Get("/auth/invite/{token}", email.GetInvite)
+		r.Post("/auth/invite/{token}/accept", email.AcceptInvite)
+		// Standard login / session.
 		r.Post("/auth/login", email.Login)
 		r.Get("/auth/me", email.Me)
 		r.Post("/auth/logout", email.Logout)
@@ -81,6 +87,21 @@ func NewRouter(logger zerolog.Logger, db *pgxpool.Pool, redis *goredis.Client, c
 		// Protected API routes
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(cfg.JWTSecret))
+
+			// Agents — list/get/stats open to all members; create/update/delete/
+			// pause/resume admin-only. The admin-only subgroup is declared last.
+			agents := handler.NewAgentHandler(queries, embedder)
+			r.Get("/agents", agents.List)
+			r.Get("/agents/{id}", agents.Get)
+			r.Get("/agents/{id}/stats", agents.Stats)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireAdmin())
+				r.Post("/agents", agents.Create)
+				r.Put("/agents/{id}", agents.Update)
+				r.Delete("/agents/{id}", agents.Delete)
+				r.Post("/agents/{id}/pause", agents.Pause)
+				r.Post("/agents/{id}/resume", agents.Resume)
+			})
 
 			// Mentions
 			mentions := handler.NewMentionHandler(queries)
@@ -179,6 +200,15 @@ func NewRouter(logger zerolog.Logger, db *pgxpool.Pool, redis *goredis.Client, c
 			r.Get("/utm-links", utm.List)
 			r.Post("/utm-links", utm.Create)
 			r.Delete("/utm-links/{id}", utm.Delete)
+
+			// Team membership — admin only.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireAdmin())
+				r.Get("/auth/invites", email.ListInvites)
+				r.Post("/auth/invites", email.CreateInvite)
+				r.Delete("/auth/invites/{id}", email.RevokeInvite)
+				r.Get("/auth/members", email.ListMembers)
+			})
 		})
 
 		// Extension signal ingestion — separate auth (X-Extension-Key) + permissive CORS

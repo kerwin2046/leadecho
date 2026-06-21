@@ -57,7 +57,7 @@ func (p ListMentionsComposedParams) buildWhere() (string, []any) {
 	return strings.Join(clauses, " AND "), args
 }
 
-const mentionColumns = `id, workspace_id, keyword_id, platform, platform_id, url, title, content, content_tsv, author_username, author_profile_url, author_karma, author_account_age_days, relevance_score, intent, conversion_probability, status, assigned_to, platform_metadata, engagement_metrics, keyword_matches, platform_created_at, created_at, updated_at, content_embedding, scoring_metadata, awareness_level`
+const mentionColumns = `id, workspace_id, keyword_id, platform, platform_id, url, title, content, content_tsv, author_username, author_profile_url, author_karma, author_account_age_days, relevance_score, intent, conversion_probability, status, assigned_to, platform_metadata, engagement_metrics, keyword_matches, platform_created_at, created_at, updated_at, scoring_metadata, awareness_level`
 
 // ListMentionsComposed applies all provided filters together (ANDed), with
 // pagination, ordered by recency.
@@ -82,7 +82,7 @@ func (q *Queries) ListMentionsComposed(ctx context.Context, p ListMentionsCompos
 			&i.AuthorKarma, &i.AuthorAccountAgeDays, &i.RelevanceScore, &i.Intent,
 			&i.ConversionProbability, &i.Status, &i.AssignedTo, &i.PlatformMetadata,
 			&i.EngagementMetrics, &i.KeywordMatches, &i.PlatformCreatedAt, &i.CreatedAt,
-			&i.UpdatedAt, &i.ContentEmbedding, &i.ScoringMetadata, &i.AwarenessLevel,
+			&i.UpdatedAt, &i.ScoringMetadata, &i.AwarenessLevel,
 		); err != nil {
 			return nil, err
 		}

@@ -3,6 +3,8 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -49,7 +51,7 @@ func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
 	defer ticker.Stop()
 
 	// Run immediately on start
-	m.tick(ctx)
+	m.safeTick(ctx)
 
 	for {
 		select {
@@ -57,9 +59,23 @@ func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
 			m.logger.Info().Msg("monitor stopped")
 			return
 		case <-ticker.C:
-			m.tick(ctx)
+			m.safeTick(ctx)
 		}
 	}
+}
+
+// safeTick wraps tick with a recover so a panic in a single crawler cannot
+// kill the whole monitor goroutine (and the process with it).
+func (m *Monitor) safeTick(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error().
+				Str("panic", fmt.Sprintf("%v", r)).
+				Str("stack", string(debug.Stack())).
+				Msg("monitor tick panicked; recovered")
+		}
+	}()
+	m.tick(ctx)
 }
 
 func (m *Monitor) tick(ctx context.Context) {
@@ -73,6 +89,11 @@ func (m *Monitor) tick(ctx context.Context) {
 	if len(allKeywords) == 0 {
 		return
 	}
+
+	// Track new mentions per agent (monitoring profile) so we can record
+	// last-run telemetry after the tick. Every active keyword's profile gets an
+	// entry (even with 0 new mentions) so last_run_at reflects that it ran.
+	profileMentions := map[string]int{}
 
 	// Group keywords by workspace so we can send per-workspace notifications
 	type wsKeywords struct {
@@ -96,6 +117,10 @@ func (m *Monitor) tick(ctx context.Context) {
 		var alerts []mentionAlert
 
 		for i, kw := range g.keywords {
+			if _, ok := profileMentions[kw.ProfileID]; !ok {
+				profileMentions[kw.ProfileID] = 0
+			}
+			alertsBefore := len(alerts)
 			// Convert to ListActiveKeywordsRow (same shape) for crawl functions
 			akw := database.ListActiveKeywordsRow{
 				ID:            kw.ID,
@@ -165,6 +190,8 @@ func (m *Monitor) tick(ctx context.Context) {
 				}
 			}
 
+			profileMentions[kw.ProfileID] += len(alerts) - alertsBefore
+
 			// Pause between keywords to avoid hammering APIs
 			if i < len(g.keywords)-1 {
 				select {
@@ -180,6 +207,16 @@ func (m *Monitor) tick(ctx context.Context) {
 
 		// Fire webhook notifications for this workspace
 		m.notifyNewMentions(ctx, wsID, alerts)
+	}
+
+	// Record last-run telemetry for every agent that was crawled this tick.
+	for profileID, n := range profileMentions {
+		if _, err := m.q.TouchAgentRun(ctx, database.TouchAgentRunParams{
+			ID:              profileID,
+			LastRunMentions: pgtype.Int4{Int32: int32(n), Valid: true},
+		}); err != nil {
+			m.logger.Warn().Err(err).Str("profile_id", profileID).Msg("failed to record agent run telemetry")
+		}
 	}
 }
 

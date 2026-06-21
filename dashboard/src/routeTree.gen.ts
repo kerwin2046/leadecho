@@ -14,18 +14,21 @@ import { Route as OnboardingRouteImport } from "./routes/onboarding"
 import { Route as DashboardRouteImport } from "./routes/_dashboard"
 import { Route as AuthRouteImport } from "./routes/_auth"
 import { Route as IndexRouteImport } from "./routes/index"
+import { Route as InviteTokenRouteImport } from "./routes/invite.$token"
 import { Route as DashboardWorkflowsRouteImport } from "./routes/_dashboard/workflows"
 import { Route as DashboardSettingsRouteImport } from "./routes/_dashboard/settings"
 import { Route as DashboardProfilesRouteImport } from "./routes/_dashboard/profiles"
 import { Route as DashboardPipelineRouteImport } from "./routes/_dashboard/pipeline"
+import { Route as DashboardMembersRouteImport } from "./routes/_dashboard/members"
 import { Route as DashboardKnowledgeBaseRouteImport } from "./routes/_dashboard/knowledge-base"
-import { Route as DashboardKeywordsRouteImport } from "./routes/_dashboard/keywords"
 import { Route as DashboardInboxRouteImport } from "./routes/_dashboard/inbox"
 import { Route as DashboardBrowserSessionsRouteImport } from "./routes/_dashboard/browser-sessions"
 import { Route as DashboardAnalyticsRouteImport } from "./routes/_dashboard/analytics"
 import { Route as DashboardAlertsRouteImport } from "./routes/_dashboard/alerts"
-import { Route as AuthRegisterRouteImport } from "./routes/_auth/register"
+import { Route as AuthSetupRouteImport } from "./routes/_auth/setup"
 import { Route as AuthLoginRouteImport } from "./routes/_auth/login"
+import { Route as DashboardAgentsIndexRouteImport } from "./routes/_dashboard/agents/index"
+import { Route as DashboardAgentsAgentIdRouteImport } from "./routes/_dashboard/agents/$agentId"
 
 const PrivacyRoute = PrivacyRouteImport.update({
   id: "/privacy",
@@ -50,6 +53,11 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: "/invite/$token",
+  path: "/invite/$token",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardWorkflowsRoute = DashboardWorkflowsRouteImport.update({
   id: "/workflows",
   path: "/workflows",
@@ -70,14 +78,14 @@ const DashboardPipelineRoute = DashboardPipelineRouteImport.update({
   path: "/pipeline",
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardMembersRoute = DashboardMembersRouteImport.update({
+  id: "/members",
+  path: "/members",
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardKnowledgeBaseRoute = DashboardKnowledgeBaseRouteImport.update({
   id: "/knowledge-base",
   path: "/knowledge-base",
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardKeywordsRoute = DashboardKeywordsRouteImport.update({
-  id: "/keywords",
-  path: "/keywords",
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardInboxRoute = DashboardInboxRouteImport.update({
@@ -101,9 +109,9 @@ const DashboardAlertsRoute = DashboardAlertsRouteImport.update({
   path: "/alerts",
   getParentRoute: () => DashboardRoute,
 } as any)
-const AuthRegisterRoute = AuthRegisterRouteImport.update({
-  id: "/register",
-  path: "/register",
+const AuthSetupRoute = AuthSetupRouteImport.update({
+  id: "/setup",
+  path: "/setup",
   getParentRoute: () => AuthRoute,
 } as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
@@ -111,40 +119,56 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: "/login",
   getParentRoute: () => AuthRoute,
 } as any)
+const DashboardAgentsIndexRoute = DashboardAgentsIndexRouteImport.update({
+  id: "/agents/",
+  path: "/agents/",
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardAgentsAgentIdRoute = DashboardAgentsAgentIdRouteImport.update({
+  id: "/agents/$agentId",
+  path: "/agents/$agentId",
+  getParentRoute: () => DashboardRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
   "/onboarding": typeof OnboardingRoute
   "/privacy": typeof PrivacyRoute
   "/login": typeof AuthLoginRoute
-  "/register": typeof AuthRegisterRoute
+  "/setup": typeof AuthSetupRoute
   "/alerts": typeof DashboardAlertsRoute
   "/analytics": typeof DashboardAnalyticsRoute
   "/browser-sessions": typeof DashboardBrowserSessionsRoute
   "/inbox": typeof DashboardInboxRoute
-  "/keywords": typeof DashboardKeywordsRoute
   "/knowledge-base": typeof DashboardKnowledgeBaseRoute
+  "/members": typeof DashboardMembersRoute
   "/pipeline": typeof DashboardPipelineRoute
   "/profiles": typeof DashboardProfilesRoute
   "/settings": typeof DashboardSettingsRoute
   "/workflows": typeof DashboardWorkflowsRoute
+  "/invite/$token": typeof InviteTokenRoute
+  "/agents/$agentId": typeof DashboardAgentsAgentIdRoute
+  "/agents/": typeof DashboardAgentsIndexRoute
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
   "/onboarding": typeof OnboardingRoute
   "/privacy": typeof PrivacyRoute
   "/login": typeof AuthLoginRoute
-  "/register": typeof AuthRegisterRoute
+  "/setup": typeof AuthSetupRoute
   "/alerts": typeof DashboardAlertsRoute
   "/analytics": typeof DashboardAnalyticsRoute
   "/browser-sessions": typeof DashboardBrowserSessionsRoute
   "/inbox": typeof DashboardInboxRoute
-  "/keywords": typeof DashboardKeywordsRoute
   "/knowledge-base": typeof DashboardKnowledgeBaseRoute
+  "/members": typeof DashboardMembersRoute
   "/pipeline": typeof DashboardPipelineRoute
   "/profiles": typeof DashboardProfilesRoute
   "/settings": typeof DashboardSettingsRoute
   "/workflows": typeof DashboardWorkflowsRoute
+  "/invite/$token": typeof InviteTokenRoute
+  "/agents/$agentId": typeof DashboardAgentsAgentIdRoute
+  "/agents": typeof DashboardAgentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -154,17 +178,20 @@ export interface FileRoutesById {
   "/onboarding": typeof OnboardingRoute
   "/privacy": typeof PrivacyRoute
   "/_auth/login": typeof AuthLoginRoute
-  "/_auth/register": typeof AuthRegisterRoute
+  "/_auth/setup": typeof AuthSetupRoute
   "/_dashboard/alerts": typeof DashboardAlertsRoute
   "/_dashboard/analytics": typeof DashboardAnalyticsRoute
   "/_dashboard/browser-sessions": typeof DashboardBrowserSessionsRoute
   "/_dashboard/inbox": typeof DashboardInboxRoute
-  "/_dashboard/keywords": typeof DashboardKeywordsRoute
   "/_dashboard/knowledge-base": typeof DashboardKnowledgeBaseRoute
+  "/_dashboard/members": typeof DashboardMembersRoute
   "/_dashboard/pipeline": typeof DashboardPipelineRoute
   "/_dashboard/profiles": typeof DashboardProfilesRoute
   "/_dashboard/settings": typeof DashboardSettingsRoute
   "/_dashboard/workflows": typeof DashboardWorkflowsRoute
+  "/invite/$token": typeof InviteTokenRoute
+  "/_dashboard/agents/$agentId": typeof DashboardAgentsAgentIdRoute
+  "/_dashboard/agents/": typeof DashboardAgentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -173,34 +200,40 @@ export interface FileRouteTypes {
     | "/onboarding"
     | "/privacy"
     | "/login"
-    | "/register"
+    | "/setup"
     | "/alerts"
     | "/analytics"
     | "/browser-sessions"
     | "/inbox"
-    | "/keywords"
     | "/knowledge-base"
+    | "/members"
     | "/pipeline"
     | "/profiles"
     | "/settings"
     | "/workflows"
+    | "/invite/$token"
+    | "/agents/$agentId"
+    | "/agents/"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/"
     | "/onboarding"
     | "/privacy"
     | "/login"
-    | "/register"
+    | "/setup"
     | "/alerts"
     | "/analytics"
     | "/browser-sessions"
     | "/inbox"
-    | "/keywords"
     | "/knowledge-base"
+    | "/members"
     | "/pipeline"
     | "/profiles"
     | "/settings"
     | "/workflows"
+    | "/invite/$token"
+    | "/agents/$agentId"
+    | "/agents"
   id:
     | "__root__"
     | "/"
@@ -209,17 +242,20 @@ export interface FileRouteTypes {
     | "/onboarding"
     | "/privacy"
     | "/_auth/login"
-    | "/_auth/register"
+    | "/_auth/setup"
     | "/_dashboard/alerts"
     | "/_dashboard/analytics"
     | "/_dashboard/browser-sessions"
     | "/_dashboard/inbox"
-    | "/_dashboard/keywords"
     | "/_dashboard/knowledge-base"
+    | "/_dashboard/members"
     | "/_dashboard/pipeline"
     | "/_dashboard/profiles"
     | "/_dashboard/settings"
     | "/_dashboard/workflows"
+    | "/invite/$token"
+    | "/_dashboard/agents/$agentId"
+    | "/_dashboard/agents/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -228,6 +264,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   PrivacyRoute: typeof PrivacyRoute
+  InviteTokenRoute: typeof InviteTokenRoute
 }
 
 declare module "@tanstack/react-router" {
@@ -267,6 +304,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    "/invite/$token": {
+      id: "/invite/$token"
+      path: "/invite/$token"
+      fullPath: "/invite/$token"
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     "/_dashboard/workflows": {
       id: "/_dashboard/workflows"
       path: "/workflows"
@@ -295,18 +339,18 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof DashboardPipelineRouteImport
       parentRoute: typeof DashboardRoute
     }
+    "/_dashboard/members": {
+      id: "/_dashboard/members"
+      path: "/members"
+      fullPath: "/members"
+      preLoaderRoute: typeof DashboardMembersRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     "/_dashboard/knowledge-base": {
       id: "/_dashboard/knowledge-base"
       path: "/knowledge-base"
       fullPath: "/knowledge-base"
       preLoaderRoute: typeof DashboardKnowledgeBaseRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    "/_dashboard/keywords": {
-      id: "/_dashboard/keywords"
-      path: "/keywords"
-      fullPath: "/keywords"
-      preLoaderRoute: typeof DashboardKeywordsRouteImport
       parentRoute: typeof DashboardRoute
     }
     "/_dashboard/inbox": {
@@ -337,11 +381,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof DashboardAlertsRouteImport
       parentRoute: typeof DashboardRoute
     }
-    "/_auth/register": {
-      id: "/_auth/register"
-      path: "/register"
-      fullPath: "/register"
-      preLoaderRoute: typeof AuthRegisterRouteImport
+    "/_auth/setup": {
+      id: "/_auth/setup"
+      path: "/setup"
+      fullPath: "/setup"
+      preLoaderRoute: typeof AuthSetupRouteImport
       parentRoute: typeof AuthRoute
     }
     "/_auth/login": {
@@ -351,17 +395,31 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRoute
     }
+    "/_dashboard/agents/": {
+      id: "/_dashboard/agents/"
+      path: "/agents"
+      fullPath: "/agents/"
+      preLoaderRoute: typeof DashboardAgentsIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    "/_dashboard/agents/$agentId": {
+      id: "/_dashboard/agents/$agentId"
+      path: "/agents/$agentId"
+      fullPath: "/agents/$agentId"
+      preLoaderRoute: typeof DashboardAgentsAgentIdRouteImport
+      parentRoute: typeof DashboardRoute
+    }
   }
 }
 
 interface AuthRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
-  AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthSetupRoute: typeof AuthSetupRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
-  AuthRegisterRoute: AuthRegisterRoute,
+  AuthSetupRoute: AuthSetupRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
@@ -371,12 +429,14 @@ interface DashboardRouteChildren {
   DashboardAnalyticsRoute: typeof DashboardAnalyticsRoute
   DashboardBrowserSessionsRoute: typeof DashboardBrowserSessionsRoute
   DashboardInboxRoute: typeof DashboardInboxRoute
-  DashboardKeywordsRoute: typeof DashboardKeywordsRoute
   DashboardKnowledgeBaseRoute: typeof DashboardKnowledgeBaseRoute
+  DashboardMembersRoute: typeof DashboardMembersRoute
   DashboardPipelineRoute: typeof DashboardPipelineRoute
   DashboardProfilesRoute: typeof DashboardProfilesRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardWorkflowsRoute: typeof DashboardWorkflowsRoute
+  DashboardAgentsAgentIdRoute: typeof DashboardAgentsAgentIdRoute
+  DashboardAgentsIndexRoute: typeof DashboardAgentsIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -384,12 +444,14 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAnalyticsRoute: DashboardAnalyticsRoute,
   DashboardBrowserSessionsRoute: DashboardBrowserSessionsRoute,
   DashboardInboxRoute: DashboardInboxRoute,
-  DashboardKeywordsRoute: DashboardKeywordsRoute,
   DashboardKnowledgeBaseRoute: DashboardKnowledgeBaseRoute,
+  DashboardMembersRoute: DashboardMembersRoute,
   DashboardPipelineRoute: DashboardPipelineRoute,
   DashboardProfilesRoute: DashboardProfilesRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardWorkflowsRoute: DashboardWorkflowsRoute,
+  DashboardAgentsAgentIdRoute: DashboardAgentsAgentIdRoute,
+  DashboardAgentsIndexRoute: DashboardAgentsIndexRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
@@ -402,6 +464,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   PrivacyRoute: PrivacyRoute,
+  InviteTokenRoute: InviteTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

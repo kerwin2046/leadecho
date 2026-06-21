@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
@@ -17,6 +18,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useTheme } from "@/providers/theme-provider";
+import { getSetupStatus } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
@@ -64,6 +66,12 @@ const platforms = [
 
 function LandingPage() {
   const { theme, toggleTheme } = useTheme();
+  const { data: setup } = useQuery({
+    queryKey: ["setup-status"],
+    queryFn: getSetupStatus,
+    retry: false,
+  });
+  const primaryTo = setup?.setup_required ? "/setup" : "/inbox";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -94,9 +102,9 @@ function LandingPage() {
                 Log In
               </Button>
             </Link>
-            <Link to="/inbox">
+            <Link to={primaryTo}>
               <Button size="sm">
-                Dashboard
+                {setup?.setup_required ? "Get Started" : "Dashboard"}
                 <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
               </Button>
             </Link>
@@ -104,6 +112,7 @@ function LandingPage() {
         </div>
       </nav>
 
+      {false && (<>
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-6 pt-20 pb-16">
         <div className="max-w-3xl">
@@ -279,6 +288,7 @@ function LandingPage() {
           </Text>
         </div>
       </footer>
+      </>)}
     </div>
   );
 }

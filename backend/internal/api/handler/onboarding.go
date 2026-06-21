@@ -300,6 +300,7 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		Name:        body.ProductName,
 		Description: body.Description,
 		IsActive:    true,
+		Status:      "active",
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create profile")
@@ -321,6 +322,7 @@ func (h *OnboardingHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := h.q.CreateKeyword(ctx, database.CreateKeywordParams{
 			WorkspaceID:   wsID,
+			ProfileID:     profile.ID,
 			Term:          keyword,
 			Platforms:     body.Platforms,
 			IsActive:      true,

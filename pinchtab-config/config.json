@@ -1,0 +1,39 @@
+{
+  "server": {
+    "bind": "0.0.0.0",
+    "port": "9867"
+  },
+  "security": {
+    "allowEvaluate": true,
+    "allowCookies": true,
+    "allowMacro": false,
+    "allowScreencast": false,
+    "allowDownload": false,
+    "allowUpload": false,
+    "allowedDomains": [
+      "127.0.0.1",
+      "localhost",
+      "::1",
+      "www.quora.com",
+      "*.quora.com",
+      "www.reddit.com",
+      "*.reddit.com",
+      "x.com",
+      "*.x.com",
+      "twitter.com",
+      "*.twitter.com",
+      "www.linkedin.com",
+      "*.linkedin.com",
+      "news.ycombinator.com",
+      "dev.to",
+      "lobste.rs",
+      "www.indiehackers.com"
+    ],
+    "idpi": {
+      "enabled": true,
+      "strictMode": true,
+      "scanContent": true,
+      "wrapContent": true
+    }
+  }
+}
